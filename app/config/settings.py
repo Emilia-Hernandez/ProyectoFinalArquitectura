@@ -32,7 +32,7 @@ def _detect_spark_version(default: str = "3.5.1") -> str:
         return default
 
     text = release_file.read_text(encoding="utf-8", errors="ignore")
-    match = re.search(r"Spark\\s+([0-9]+\\.[0-9]+\\.[0-9]+)", text)
+    match = re.search(r"Spark\s+([0-9]+\.[0-9]+\.[0-9]+)", text)
     return match.group(1) if match else default
 
 
@@ -53,7 +53,7 @@ def _detect_scala_binary(default: str = "2.12") -> str:
     if not candidates:
         return default
 
-    match = re.search(r"scala-library-([0-9]+\\.[0-9]+)\\.", candidates[0].name)
+    match = re.search(r"scala-library-([0-9]+\.[0-9]+)\.", candidates[0].name)
     return match.group(1) if match else default
 
 
@@ -78,13 +78,11 @@ class Settings:
     kafka_client_id: str = os.getenv("KAFKA_CLIENT_ID", "alpha-producer")
 
     stream_window_seconds: int = int(os.getenv("STREAM_WINDOW_SECONDS", "30"))
-    stream_slide_seconds: int = int(os.getenv("STREAM_SLIDE_SECONDS", "10"))
+    stream_slide_seconds: int = int(os.getenv("STREAM_SLIDE_SECONDS", "30"))
     spark_master: str = os.getenv("SPARK_MASTER", "local[*]")
     spark_kafka_package: str = field(default_factory=_resolve_spark_kafka_package)
 
-    producer_mode: str = os.getenv("PRODUCER_MODE", "simulate")
     producer_rate_per_second: int = int(os.getenv("PRODUCER_RATE_PER_SECOND", "30"))
-    producer_poll_seconds: int = int(os.getenv("PRODUCER_POLL_SECONDS", "20"))
 
     output_dir: Path = Path(os.getenv("OUTPUT_DIR", "output"))
     checkpoint_dir: Path = Path(os.getenv("CHECKPOINT_DIR", "output/checkpoints"))

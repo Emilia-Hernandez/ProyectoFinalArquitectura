@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import joblib
 import pandas as pd
 import plotly.express as px
 import streamlit as st
@@ -52,8 +53,40 @@ def load_predictions() -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True)
 
 
+def build_demo_predictions_from_silver(limit_rows: int = 500) -> pd.DataFrame:
+    silver_path = ROOT / "silver"
+    if not silver_path.exists() or not MODEL_PATH.exists():
+        return pd.DataFrame()
+
+    try:
+        silver_df = pd.read_parquet(silver_path).tail(limit_rows).copy()
+        if silver_df.empty:
+            return pd.DataFrame()
+
+        artifact = joblib.load(MODEL_PATH)
+        features = artifact["features"]
+        model = artifact["model"]
+
+        for col in features:
+            if col not in silver_df.columns:
+                silver_df[col] = 0.0
+
+        silver_df["pred_close"] = model.predict(silver_df[features])
+        silver_df["abs_error"] = (silver_df["pred_close"] - silver_df["close"]).abs()
+        silver_df["source_mode"] = "demo_from_silver"
+        return silver_df
+    except Exception:
+        return pd.DataFrame()
+
+
 stats_df = load_stats()
 pred_df = load_predictions()
+pred_source = "stream"
+if pred_df.empty:
+    demo_df = build_demo_predictions_from_silver()
+    if not demo_df.empty:
+        pred_df = demo_df
+        pred_source = "demo"
 
 col1, col2, col3 = st.columns(3)
 with col1:
@@ -99,6 +132,11 @@ with right:
     if pred_df.empty:
         st.info("Aún no hay datos en output/predictions. Ejecuta stream_predictor.")
     else:
+        if pred_source == "demo":
+            st.warning(
+                "Mostrando predicciones demo generadas desde output/silver. "
+                "Para ver predicciones online reales, deja corriendo `make predict`."
+            )
         pred_df = pred_df.sort_values("event_time").tail(500)
         fig_pred = px.line(
             pred_df,

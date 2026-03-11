@@ -2,7 +2,8 @@
 
 Implementación end-to-end de un pipeline de datos en tiempo real para precios financieros usando `Spark Structured Streaming` y `Kafka` (Redpanda), con entrenamiento de un modelo de regresión y visualización web en `Streamlit`.
 
-El proyecto usa la API de Alpha Vantage y también soporta un modo de simulación para mantener flujo continuo y reproducible.
+El streaming en tiempo real está configurado en modo **simulado** para estabilidad y replicabilidad.  
+La API de Alpha Vantage se usa para descargar datos históricos diarios al entrenar (bootstrap del dataset).
 
 ## Qué incluye
 
@@ -23,10 +24,11 @@ El proyecto usa la API de Alpha Vantage y también soporta un modo de simulació
 - `app/config/settings.py`: configuración centralizada.
 - `app/utils/logging_utils.py`: logger estándar del proyecto.
 - `app/utils/schema.py`: esquema de eventos de mercado.
-- `app/pipeline/producer.py`: productor Kafka (modo `live` con Alpha Vantage o `simulate`).
+- `app/pipeline/producer.py`: productor Kafka en modo simulado continuo.
 - `app/pipeline/stream_processor.py`: Spark Streaming para parseo, agregaciones y salida Parquet.
 - `app/pipeline/train_model.py`: entrenamiento de regresión lineal sobre capa `silver`.
 - `app/pipeline/stream_predictor.py`: inferencia online sobre micro-batches y guardado de predicciones.
+- `app/data/bootstrap_data.py`: descarga histórico diario (free endpoint) o fallback sintético para entrenar siempre.
 - `app/web/dashboard.py`: dashboard en Streamlit con Plotly.
 - `scripts/hardware_profile.py`: genera perfil de hardware de la máquina.
 - `scripts/benchmark_run.py`: guarda tiempos de ejecución básicos para comparación.
@@ -59,7 +61,14 @@ La clave incluida es:
 ALPHAVANTAGE_API_KEY=Y3YOW5NU1R7P9QIL
 ```
 
-Si quieres usar datos reales, deja `PRODUCER_MODE=live`. Si no, usa `simulate`.
+No es necesario configurar modo `live`; el productor es simulado por diseño.
+
+Configuración de ventanas (dashboard y estadísticas):
+
+- `STREAM_WINDOW_SECONDS=30`
+- `STREAM_SLIDE_SECONDS=30`
+
+Esto significa ventanas de 30 segundos tipo *tumbling* (sin traslape), por lo que verás una actualización nueva aproximadamente cada 30 segundos.
 
 3. Levantar Kafka/Redpanda:
 
@@ -74,14 +83,10 @@ make kafka-up
 Terminal 1: productor
 
 ```bash
-make producer-live
-```
-
-(o simulación continua)
-
-```bash
 make producer-sim
 ```
+
+(equivalente: `make producer`)
 
 Terminal 2: procesamiento streaming con Spark
 
@@ -103,6 +108,10 @@ Terminal 4: inferencia en streaming (segunda tanda)
 make predict
 ```
 
+Nota práctica para demo:
+- Si `output/predictions` aún está vacío, el dashboard muestra una vista de predicción demo construida desde `output/silver`.
+- Cuando `make predict` ya escribe batches, el dashboard cambia automáticamente a predicción online real.
+
 Dashboard web (puede ir en otra terminal):
 
 ```bash
@@ -119,6 +128,7 @@ make dashboard
    - `output/silver`: features derivadas (`hl_spread`, `oc_change`, etc.).
    - `output/stats`: min, max, promedio, varianza y conteos por ventana.
 3. `train_model` entrena regresión lineal y guarda modelo en `output/models/linear_regression.joblib`.
+Si hay pocos datos en `silver`, completa automáticamente con histórico diario de Alpha Vantage; si la API no responde, usa histórico sintético local.
 4. `stream_predictor` aplica modelo al stream y guarda predicciones en `output/predictions`.
 5. `dashboard` visualiza estadísticos y calidad de predicción (MAE online).
 
@@ -155,7 +165,7 @@ make kafka-down
 ## Notas
 
 - El pipeline está diseñado para privilegiar la arquitectura correcta y reproducible; la precisión del modelo no es el foco principal.
-- Si Alpha Vantage limita llamadas por cuota, usa `PRODUCER_MODE=simulate` para mantener el flujo de forma estable.
+- El endpoint intradía de Alpha Vantage puede requerir plan premium; por eso el streaming se deja simulado y se usa `TIME_SERIES_DAILY` para bootstrap de entrenamiento.
 
 ## Troubleshooting rápido
 
@@ -172,3 +182,10 @@ make kafka-down
     1. `cp .env.example .env` (si aún no existe)
     2. agregar `SPARK_KAFKA_PACKAGE=org.apache.spark:spark-sql-kafka-0-10_2.13:3.5.4`
     3. volver a correr `make stream`
+- Error `Not enough silver records to train model`:
+  - Ya corregido en el pipeline actual.
+  - `make train` ahora mezcla `silver` + bootstrap histórico para poder entrenar incluso con pocos datos iniciales.
+- No se ven predicciones en el dashboard:
+  - Verifica que `make predict` esté corriendo en una terminal aparte.
+  - El predictor ahora reinicia su checkpoint automáticamente si no existen archivos en `output/predictions`.
+  - Si aun así tarda en aparecer, el dashboard mostrará predicción demo desde `output/silver` para poder enseñar resultados.

@@ -4,7 +4,7 @@ PIP := $(VENV)/bin/pip
 PY := $(VENV)/bin/python
 STREAMLIT := $(VENV)/bin/streamlit
 
-.PHONY: setup kafka-up kafka-down producer-live producer-sim stream train predict dashboard benchmark clean
+.PHONY: setup kafka-up kafka-down producer producer-sim stream train predict dashboard benchmark clean
 
 setup:
 	$(PYTHON) -m venv $(VENV)
@@ -17,11 +17,11 @@ kafka-up:
 kafka-down:
 	docker compose down
 
-producer-live:
-	PRODUCER_MODE=live $(PY) -m app.pipeline.producer
+producer:
+	$(PY) -m app.pipeline.producer
 
 producer-sim:
-	PRODUCER_MODE=simulate $(PY) -m app.pipeline.producer
+	$(PY) -m app.pipeline.producer
 
 stream:
 	$(PY) -m app.pipeline.stream_processor

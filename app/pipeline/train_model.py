@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import joblib
 import numpy as np
-import pandas as pd
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 
 from app.config.settings import settings
+from app.data.bootstrap_data import ensure_training_dataset
 from app.utils.logging_utils import get_logger
 
 logger = get_logger(__name__)
@@ -22,18 +20,16 @@ def run() -> None:
     model_path = settings.output_dir / "models"
     model_path.mkdir(parents=True, exist_ok=True)
 
-    if not silver_path.exists():
-        raise FileNotFoundError(f"Silver data does not exist at {silver_path}")
-
-    df = pd.read_parquet(silver_path)
-    if df.empty or len(df) < 50:
-        raise ValueError("Not enough silver records to train model. Collect more streaming data.")
-
-    data = df[FEATURES + [TARGET]].dropna().copy()
-    if len(data) < 50:
-        raise ValueError("Not enough clean records after dropping NA values.")
+    data = ensure_training_dataset(silver_path=silver_path, min_rows=30)
+    if len(data) < 10:
+        raise ValueError("Not enough records even after bootstrap fallback.")
 
     split_idx = int(len(data) * 0.8)
+    if split_idx == 0:
+        split_idx = max(1, len(data) - 1)
+    if split_idx >= len(data):
+        split_idx = len(data) - 1
+
     train = data.iloc[:split_idx]
     test = data.iloc[split_idx:]
 
@@ -54,6 +50,7 @@ def run() -> None:
     output_file = model_path / "linear_regression.joblib"
     joblib.dump(artifact, output_file)
     logger.info("saved model to %s", output_file)
+    logger.info("dataset rows used=%s train=%s test=%s", len(data), len(train), len(test))
     logger.info("metrics: MAE=%.5f RMSE=%.5f", mae, rmse)
 
 

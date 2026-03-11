@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import joblib
@@ -38,15 +39,21 @@ def run() -> None:
     pred_path = settings.output_dir / "predictions"
     ckpt_path = settings.checkpoint_dir / "predictor"
     pred_path.mkdir(parents=True, exist_ok=True)
+
+    # If checkpoint exists but there are still no prediction files, reset it so the query can replay data.
+    if ckpt_path.exists() and not any(pred_path.glob("*.parquet")):
+        logger.info("resetting predictor checkpoint at %s to force replay", ckpt_path)
+        shutil.rmtree(ckpt_path)
     ckpt_path.mkdir(parents=True, exist_ok=True)
 
     spark = _build_spark("market-stream-predictor")
+    logger.info("using spark kafka package: %s", settings.spark_kafka_package)
 
     kafka_raw = (
         spark.readStream.format("kafka")
         .option("kafka.bootstrap.servers", settings.kafka_bootstrap_servers)
         .option("subscribe", settings.kafka_topic)
-        .option("startingOffsets", "latest")
+        .option("startingOffsets", "earliest")
         .load()
     )
 
@@ -59,20 +66,23 @@ def run() -> None:
     )
 
     def score_microbatch(batch_df, batch_id: int) -> None:
-        pdf = batch_df.toPandas()
-        if pdf.empty:
-            return
+        try:
+            pdf = batch_df.toPandas()
+            if pdf.empty:
+                return
 
-        for col in features:
-            if col not in pdf.columns:
-                pdf[col] = 0.0
+            for col in features:
+                if col not in pdf.columns:
+                    pdf[col] = 0.0
 
-        pdf["pred_close"] = model.predict(pdf[features])
-        pdf["abs_error"] = (pdf["pred_close"] - pdf["close"]).abs()
-        pdf["batch_id"] = batch_id
+            pdf["pred_close"] = model.predict(pdf[features])
+            pdf["abs_error"] = (pdf["pred_close"] - pdf["close"]).abs()
+            pdf["batch_id"] = batch_id
 
-        pdf.to_parquet(pred_path / f"batch_{batch_id:08d}.parquet", index=False)
-        logger.info("stored prediction batch=%s rows=%s", batch_id, len(pdf))
+            pdf.to_parquet(pred_path / f"batch_{batch_id:08d}.parquet", index=False)
+            logger.info("stored prediction batch=%s rows=%s", batch_id, len(pdf))
+        except Exception as exc:
+            logger.exception("failed scoring batch_id=%s error=%s", batch_id, exc)
 
     query = (
         parsed.writeStream.foreachBatch(score_microbatch)

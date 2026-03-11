@@ -33,6 +33,7 @@ def run() -> None:
         Path(path).mkdir(parents=True, exist_ok=True)
 
     spark = _build_spark("market-stream-processor")
+    logger.info("using spark kafka package: %s", settings.spark_kafka_package)
 
     kafka_raw = (
         spark.readStream.format("kafka")

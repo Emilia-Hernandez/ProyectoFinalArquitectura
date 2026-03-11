@@ -55,11 +55,6 @@ make setup
 cp .env.example .env
 ```
 
-La clave incluida es:
-
-```env
-ALPHAVANTAGE_API_KEY=Y3YOW5NU1R7P9QIL
-```
 
 No es necesario configurar modo `live`; el productor es simulado por diseño.
 

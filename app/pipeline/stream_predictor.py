@@ -67,13 +67,18 @@ def run() -> None:
 
     def score_microbatch(batch_df, batch_id: int) -> None:
         try:
-            pdf = batch_df.toPandas()
+            rows = batch_df.collect()
+            if not rows:
+                return
+
+            pdf = pd.DataFrame([row.asDict(recursive=True) for row in rows])
             if pdf.empty:
                 return
 
             for col in features:
                 if col not in pdf.columns:
                     pdf[col] = 0.0
+                pdf[col] = pd.to_numeric(pdf[col], errors="coerce").fillna(0.0)
 
             pdf["pred_close"] = model.predict(pdf[features])
             pdf["abs_error"] = (pdf["pred_close"] - pdf["close"]).abs()

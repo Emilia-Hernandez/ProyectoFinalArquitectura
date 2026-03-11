@@ -15,6 +15,27 @@ FEATURES = ["open", "high", "low", "volume", "hl_spread", "oc_change"]
 TARGET = "close"
 
 
+def _safe_read_parquet(path: Path) -> pd.DataFrame:
+    if not path.exists():
+        return pd.DataFrame()
+
+    try:
+        if path.is_file():
+            if path.stat().st_size == 0:
+                logger.warning("Skipping empty parquet file: %s", path)
+                return pd.DataFrame()
+            return pd.read_parquet(path)
+
+        parquet_files = [p for p in path.rglob("*.parquet") if p.is_file() and p.stat().st_size > 0]
+        if not parquet_files:
+            logger.warning("No non-empty parquet files found under: %s", path)
+            return pd.DataFrame()
+
+        return pd.read_parquet(parquet_files)
+    except Exception as exc:
+        logger.warning("Could not read parquet from %s: %s", path, exc)
+        return pd.DataFrame()
+
 
 def _alpha_vantage_daily(symbol: str) -> pd.DataFrame:
     if not settings.alpha_api_key:
@@ -63,7 +84,6 @@ def _alpha_vantage_daily(symbol: str) -> pd.DataFrame:
     return df
 
 
-
 def _synthetic_history(symbol: str, periods: int = 365) -> pd.DataFrame:
     base = 100.0
     rows = []
@@ -94,14 +114,13 @@ def _synthetic_history(symbol: str, periods: int = 365) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-
 def get_bootstrap_dataset(min_rows: int = 60) -> pd.DataFrame:
     output_path = settings.output_dir / "bootstrap"
     output_path.mkdir(parents=True, exist_ok=True)
     cache_file = output_path / "historical_features.parquet"
 
     if cache_file.exists():
-        cached = pd.read_parquet(cache_file)
+        cached = _safe_read_parquet(cache_file)
         if len(cached) >= min_rows:
             return cached
 
@@ -119,12 +138,11 @@ def get_bootstrap_dataset(min_rows: int = 60) -> pd.DataFrame:
     return df
 
 
-
 def ensure_training_dataset(silver_path: Path, min_rows: int = 30) -> pd.DataFrame:
     frames = []
 
     if silver_path.exists():
-        silver = pd.read_parquet(silver_path)
+        silver = _safe_read_parquet(silver_path)
         if not silver.empty:
             frames.append(silver)
 

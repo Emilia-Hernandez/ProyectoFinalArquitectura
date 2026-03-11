@@ -156,3 +156,19 @@ make kafka-down
 
 - El pipeline está diseñado para privilegiar la arquitectura correcta y reproducible; la precisión del modelo no es el foco principal.
 - Si Alpha Vantage limita llamadas por cuota, usa `PRODUCER_MODE=simulate` para mantener el flujo de forma estable.
+
+## Troubleshooting rápido
+
+- Error `ModuleNotFoundError: No module named 'kafka.vendor.six.moves'`:
+  - Causa: versión vieja de cliente Kafka incompatible con Python 3.12.
+  - Solución:
+    1. `rm -rf .venv`
+    2. `make setup`
+    3. `make producer-sim`
+- Error `NoSuchMethodError ... scala.Predef$.wrapRefArray` en `make stream`:
+  - Causa: incompatibilidad entre la versión/scala del conector Kafka y tu Spark local.
+  - El proyecto ahora autodetecta `SPARK_HOME` para construir el paquete correcto, pero puedes forzarlo en `.env`.
+  - Para tu entorno actual (Spark `3.5.4` compilado con `scala-2.13`), usa:
+    1. `cp .env.example .env` (si aún no existe)
+    2. agregar `SPARK_KAFKA_PACKAGE=org.apache.spark:spark-sql-kafka-0-10_2.13:3.5.4`
+    3. volver a correr `make stream`

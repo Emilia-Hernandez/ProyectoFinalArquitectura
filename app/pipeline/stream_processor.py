@@ -17,10 +17,7 @@ def _build_spark(app_name: str) -> SparkSession:
         SparkSession.builder.appName(app_name)
         .master(settings.spark_master)
         .config("spark.sql.shuffle.partitions", "4")
-        .config(
-            "spark.jars.packages",
-            "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1",
-        )
+        .config("spark.jars.packages", settings.spark_kafka_package)
         .config("spark.sql.streaming.stateStore.providerClass", "org.apache.spark.sql.execution.streaming.state.HDFSBackedStateStoreProvider")
         .getOrCreate()
     )

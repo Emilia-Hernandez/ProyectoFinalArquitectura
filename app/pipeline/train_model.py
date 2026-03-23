@@ -11,8 +11,8 @@ from app.utils.logging_utils import get_logger
 
 logger = get_logger(__name__)
 
-FEATURES = ["open", "high", "low", "volume", "hl_spread", "oc_change"]
-TARGET = "close"
+FEATURES = ["open", "high", "low", "close", "volume", "hl_spread"]
+TARGET = "next_close"
 
 
 def run() -> None:

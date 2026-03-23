@@ -35,6 +35,7 @@ def run() -> None:
     artifact = joblib.load(model_file)
     model = artifact["model"]
     features = artifact["features"]
+    target = artifact.get("target", "pred_close")
 
     pred_path = settings.output_dir / "predictions"
     ckpt_path = settings.checkpoint_dir / "predictor"
@@ -62,7 +63,6 @@ def run() -> None:
         .select("json.*")
         .withColumn("event_time", F.to_timestamp("event_time"))
         .withColumn("hl_spread", F.col("high") - F.col("low"))
-        .withColumn("oc_change", F.col("close") - F.col("open"))
     )
 
     def score_microbatch(batch_df, batch_id: int) -> None:
@@ -80,8 +80,8 @@ def run() -> None:
                     pdf[col] = 0.0
                 pdf[col] = pd.to_numeric(pdf[col], errors="coerce").fillna(0.0)
 
-            pdf["pred_close"] = model.predict(pdf[features])
-            pdf["abs_error"] = (pdf["pred_close"] - pdf["close"]).abs()
+            pdf["pred_next_close"] = model.predict(pdf[features])
+            pdf["prediction_target"] = target
             pdf["batch_id"] = batch_id
 
             pdf.to_parquet(pred_path / f"batch_{batch_id:08d}.parquet", index=False)

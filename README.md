@@ -58,6 +58,12 @@ cp .env.example .env
 
 No es necesario configurar modo `live`; el productor es simulado por diseño.
 
+Configuración de caudal del productor:
+
+- `PRODUCER_RATE_PER_SECOND=4096`
+
+El proyecto queda configurado para generar al menos `4096` eventos por segundo, en línea con la magnitud pedida en las instrucciones del curso.
+
 Configuración de ventanas (dashboard y estadísticas):
 
 - `STREAM_WINDOW_SECONDS=10`

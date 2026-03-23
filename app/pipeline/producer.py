@@ -78,19 +78,31 @@ def run() -> None:
         logger.info("Producer stopped before Kafka connection was established")
         return
     logger.info(
-        "Producer started mode=simulate-only topic=%s bootstrap=%s",
+        "Producer started mode=simulate-only topic=%s bootstrap=%s target_rate=%s msg/s",
         settings.kafka_topic,
         settings.kafka_bootstrap_servers,
+        settings.producer_rate_per_second,
     )
     sent_messages = 0
     try:
+        batch_size = max(settings.producer_rate_per_second, 1)
+        batch_started_at = time.perf_counter()
         for event in _simulate_stream(settings.alpha_symbol, settings.producer_rate_per_second):
-            future = producer.send(settings.kafka_topic, event)
-            future.get(timeout=10)
             sent_messages += 1
-            if sent_messages % max(settings.producer_rate_per_second, 1) == 0:
+            producer.send(settings.kafka_topic, event)
+            if sent_messages % batch_size == 0:
                 producer.flush()
-                logger.info("Published messages=%s topic=%s", sent_messages, settings.kafka_topic)
+                elapsed = time.perf_counter() - batch_started_at
+                achieved_rate = batch_size / elapsed if elapsed > 0 else float(batch_size)
+                logger.info(
+                    "Published messages=%s topic=%s batch_size=%s elapsed=%.3fs achieved_rate=%.1f msg/s",
+                    sent_messages,
+                    settings.kafka_topic,
+                    batch_size,
+                    elapsed,
+                    achieved_rate,
+                )
+                batch_started_at = time.perf_counter()
     except KeyboardInterrupt:
         logger.info("Producer interrupted; flushing pending messages=%s", sent_messages)
     except KafkaError:

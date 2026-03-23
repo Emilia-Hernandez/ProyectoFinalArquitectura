@@ -11,8 +11,8 @@ from app.utils.logging_utils import get_logger
 
 logger = get_logger(__name__)
 
-FEATURES = ["open", "high", "low", "volume", "hl_spread", "oc_change"]
-TARGET = "close"
+FEATURES = ["open", "high", "low", "close", "volume", "hl_spread"]
+TARGET = "next_close"
 
 
 def _safe_read_parquet(path: Path) -> pd.DataFrame:
@@ -130,7 +130,6 @@ def get_bootstrap_dataset(min_rows: int = 60) -> pd.DataFrame:
         df = _synthetic_history(settings.alpha_symbol, periods=max(365, min_rows))
 
     df["hl_spread"] = df["high"] - df["low"]
-    df["oc_change"] = df["close"] - df["open"]
 
     df = df.dropna().copy()
     df.to_parquet(cache_file, index=False)
@@ -150,6 +149,18 @@ def ensure_training_dataset(silver_path: Path, min_rows: int = 30) -> pd.DataFra
     if len(merged) < min_rows:
         bootstrap = get_bootstrap_dataset(min_rows=max(120, min_rows))
         merged = pd.concat([merged, bootstrap], ignore_index=True) if not merged.empty else bootstrap
+
+    if merged.empty:
+        return pd.DataFrame(columns=FEATURES + [TARGET])
+
+    sort_cols = [col for col in ["symbol", "event_time"] if col in merged.columns]
+    if sort_cols:
+        merged = merged.sort_values(sort_cols).reset_index(drop=True)
+
+    if "symbol" in merged.columns:
+        merged[TARGET] = merged.groupby("symbol")["close"].shift(-1)
+    else:
+        merged[TARGET] = merged["close"].shift(-1)
 
     cols = FEATURES + [TARGET]
     return merged[cols].dropna().reset_index(drop=True)

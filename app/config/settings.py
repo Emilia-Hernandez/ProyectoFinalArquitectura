@@ -82,7 +82,7 @@ class Settings:
     spark_master: str = os.getenv("SPARK_MASTER", "local[*]")
     spark_kafka_package: str = field(default_factory=_resolve_spark_kafka_package)
 
-    producer_rate_per_second: int = int(os.getenv("PRODUCER_RATE_PER_SECOND", "30"))
+    producer_rate_per_second: int = int(os.getenv("PRODUCER_RATE_PER_SECOND", "4096"))
 
     output_dir: Path = Path(os.getenv("OUTPUT_DIR", "output"))
     checkpoint_dir: Path = Path(os.getenv("CHECKPOINT_DIR", "output/checkpoints"))

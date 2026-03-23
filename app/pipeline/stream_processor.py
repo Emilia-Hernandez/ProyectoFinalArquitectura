@@ -1,17 +1,38 @@
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 
 import pandas as pd
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
+from pyspark.sql.streaming import StreamingQueryListener
 
 from app.config.settings import settings
 from app.utils.logging_utils import get_logger
 from app.utils.schema import MARKET_SCHEMA
 
 logger = get_logger(__name__)
+
+
+class _ProgressLogger(StreamingQueryListener):
+    def __init__(self, output_dir: Path) -> None:
+        super().__init__()
+        self.output_dir = output_dir
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+    def onQueryStarted(self, event) -> None:
+        logger.info("stream query started id=%s runId=%s", event.id, event.runId)
+
+    def onQueryProgress(self, event) -> None:
+        progress = json.loads(event.progress.json)
+        query_name = progress.get("name") or "unnamed_query"
+        metrics_file = self.output_dir / f"{query_name}.json"
+        metrics_file.write_text(json.dumps(progress, indent=2), encoding="utf-8")
+
+    def onQueryTerminated(self, event) -> None:
+        logger.info("stream query terminated id=%s runId=%s", event.id, event.runId)
 
 
 def _build_spark(app_name: str) -> SparkSession:
@@ -36,6 +57,7 @@ def run() -> None:
 
     spark = _build_spark("market-stream-processor")
     logger.info("using spark kafka package: %s", settings.spark_kafka_package)
+    spark.streams.addListener(_ProgressLogger(output_root / "logs" / "stream_progress"))
 
     kafka_raw = (
         spark.readStream.format("kafka")
@@ -80,15 +102,16 @@ def run() -> None:
 
     def write_stats_snapshot(batch_df, batch_id: int) -> None:
         try:
-            pdf = batch_df.toPandas()
+            rows = [row.asDict(recursive=True) for row in batch_df.collect()]
             stats_dir = output_root / "stats"
             stats_file = stats_dir / "latest.parquet"
             temp_file = stats_dir / f".latest.batch_{batch_id}.parquet"
 
-            if pdf.empty:
+            if not rows:
                 logger.info("stats batch=%s empty; skipping snapshot write", batch_id)
                 return
 
+            pdf = pd.DataFrame(rows)
             pdf = pdf.sort_values(["window_start", "symbol"]).reset_index(drop=True)
             pdf.to_parquet(temp_file, index=False)
             temp_file.replace(stats_file)
@@ -98,6 +121,7 @@ def run() -> None:
 
     bronze_query = (
         parsed.writeStream.format("parquet")
+        .queryName("bronze_sink")
         .outputMode("append")
         .option("path", str(output_root / "bronze"))
         .option("checkpointLocation", str(checkpoint_root / "processor" / "bronze"))
@@ -112,6 +136,7 @@ def run() -> None:
 
     silver_query = (
         silver.writeStream.format("parquet")
+        .queryName("silver_sink")
         .outputMode("append")
         .option("path", str(output_root / "silver"))
         .option("checkpointLocation", str(checkpoint_root / "processor" / "silver"))
@@ -119,6 +144,8 @@ def run() -> None:
     )
 
     stats_checkpoint = checkpoint_root / "processor" / "stats_snapshot"
+    if stats_checkpoint.exists():
+        shutil.rmtree(stats_checkpoint, ignore_errors=True)
     stats_checkpoint.mkdir(parents=True, exist_ok=True)
     latest_stats_file = output_root / "stats" / "latest.parquet"
     if latest_stats_file.exists():
@@ -133,14 +160,14 @@ def run() -> None:
                 stale_path.unlink(missing_ok=True)
 
     stats_query = (
-        stats.writeStream.foreachBatch(write_stats_snapshot)
-        .outputMode("update")
+        stats.writeStream.queryName("stats_snapshot").foreachBatch(write_stats_snapshot)
+        .outputMode("complete")
         .option("checkpointLocation", str(stats_checkpoint))
         .start()
     )
 
     console_query = (
-        stats.writeStream.outputMode("update")
+        stats.writeStream.queryName("stats_console").outputMode("update")
         .format("console")
         .option("truncate", False)
         .option("numRows", 10)

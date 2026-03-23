@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Dict, Iterator
 
 from kafka import KafkaProducer
+from kafka.errors import KafkaError, NoBrokersAvailable
 
 from app.config.settings import settings
 from app.utils.logging_utils import get_logger
@@ -15,13 +16,36 @@ logger = get_logger(__name__)
 
 
 def _build_producer() -> KafkaProducer:
-    return KafkaProducer(
-        bootstrap_servers=settings.kafka_bootstrap_servers,
-        client_id=settings.kafka_client_id,
-        value_serializer=lambda v: json.dumps(v).encode("utf-8"),
-        retries=5,
-        linger_ms=50,
-    )
+    last_error: NoBrokersAvailable | None = None
+    for attempt in range(1, 16):
+        try:
+            producer = KafkaProducer(
+                bootstrap_servers=settings.kafka_bootstrap_servers,
+                client_id=settings.kafka_client_id,
+                value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+                retries=5,
+                linger_ms=50,
+                acks="all",
+            )
+            if attempt > 1:
+                logger.info("Kafka broker ready after retries=%s", attempt - 1)
+            return producer
+        except NoBrokersAvailable as exc:
+            last_error = exc
+            logger.warning(
+                "Kafka broker not ready yet bootstrap=%s attempt=%s/15; retrying in 2s",
+                settings.kafka_bootstrap_servers,
+                attempt,
+            )
+            try:
+                time.sleep(2)
+            except KeyboardInterrupt:
+                logger.info("Producer interrupted while waiting for Kafka broker")
+                raise
+
+    raise NoBrokersAvailable(
+        f"Could not connect to Kafka broker at {settings.kafka_bootstrap_servers} after 15 attempts"
+    ) from last_error
 
 
 def _simulate_stream(symbol: str, rate_per_second: int) -> Iterator[Dict]:
@@ -48,14 +72,33 @@ def _simulate_stream(symbol: str, rate_per_second: int) -> Iterator[Dict]:
         time.sleep(1)
 
 def run() -> None:
-    producer = _build_producer()
+    try:
+        producer = _build_producer()
+    except KeyboardInterrupt:
+        logger.info("Producer stopped before Kafka connection was established")
+        return
     logger.info(
         "Producer started mode=simulate-only topic=%s bootstrap=%s",
         settings.kafka_topic,
         settings.kafka_bootstrap_servers,
     )
-    for event in _simulate_stream(settings.alpha_symbol, settings.producer_rate_per_second):
-        producer.send(settings.kafka_topic, event)
+    sent_messages = 0
+    try:
+        for event in _simulate_stream(settings.alpha_symbol, settings.producer_rate_per_second):
+            future = producer.send(settings.kafka_topic, event)
+            future.get(timeout=10)
+            sent_messages += 1
+            if sent_messages % max(settings.producer_rate_per_second, 1) == 0:
+                producer.flush()
+                logger.info("Published messages=%s topic=%s", sent_messages, settings.kafka_topic)
+    except KeyboardInterrupt:
+        logger.info("Producer interrupted; flushing pending messages=%s", sent_messages)
+    except KafkaError:
+        logger.exception("Kafka publish failed topic=%s", settings.kafka_topic)
+        raise
+    finally:
+        producer.flush()
+        producer.close()
 
 
 if __name__ == "__main__":

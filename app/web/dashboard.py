@@ -6,6 +6,7 @@ import joblib
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+from pyarrow.lib import ArrowInvalid
 
 ROOT = Path("output")
 STATS_PATH = ROOT / "stats"
@@ -39,17 +40,38 @@ st.title("Streaming + ML Pipeline (Spark + Kafka + Alpha Vantage)")
 def load_stats() -> pd.DataFrame:
     if not STATS_PATH.exists():
         return pd.DataFrame()
-    return pd.read_parquet(STATS_PATH)
+    latest_file = STATS_PATH / "latest.parquet"
+    if latest_file.exists() and latest_file.stat().st_size > 0:
+        try:
+            return pd.read_parquet(latest_file)
+        except (ArrowInvalid, OSError, ValueError):
+            return pd.DataFrame()
+
+    files = [f for f in sorted(STATS_PATH.glob("*.parquet")) if f.stat().st_size > 0]
+    frames: list[pd.DataFrame] = []
+    for parquet_file in files[-30:]:
+        try:
+            frames.append(pd.read_parquet(parquet_file))
+        except (ArrowInvalid, OSError, ValueError):
+            continue
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
 @st.cache_data(ttl=5)
 def load_predictions() -> pd.DataFrame:
     if not PRED_PATH.exists():
         return pd.DataFrame()
-    files = sorted(PRED_PATH.glob("*.parquet"))
+    files = [f for f in sorted(PRED_PATH.glob("*.parquet")) if f.stat().st_size > 0]
     if not files:
         return pd.DataFrame()
-    frames = [pd.read_parquet(f) for f in files[-30:]]
+    frames: list[pd.DataFrame] = []
+    for parquet_file in files[-30:]:
+        try:
+            frames.append(pd.read_parquet(parquet_file))
+        except (ArrowInvalid, OSError, ValueError):
+            continue
+    if not frames:
+        return pd.DataFrame()
     return pd.concat(frames, ignore_index=True)
 
 
@@ -154,6 +176,6 @@ with right:
 
 st.divider()
 st.caption(
-    "Actualiza cada 5s. Datos: Alpha Vantage o simulación. "
+    "Actualiza cada 5s. Ventanas de 10s. Datos: Alpha Vantage o simulación. "
     "Revisa Spark UI en http://localhost:4040 y Redpanda Console en http://localhost:8080"
 )

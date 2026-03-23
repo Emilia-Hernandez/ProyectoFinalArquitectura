@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
+import pandas as pd
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 
@@ -76,6 +78,24 @@ def run() -> None:
         )
     )
 
+    def write_stats_snapshot(batch_df, batch_id: int) -> None:
+        try:
+            pdf = batch_df.toPandas()
+            stats_dir = output_root / "stats"
+            stats_file = stats_dir / "latest.parquet"
+            temp_file = stats_dir / f".latest.batch_{batch_id}.parquet"
+
+            if pdf.empty:
+                logger.info("stats batch=%s empty; skipping snapshot write", batch_id)
+                return
+
+            pdf = pdf.sort_values(["window_start", "symbol"]).reset_index(drop=True)
+            pdf.to_parquet(temp_file, index=False)
+            temp_file.replace(stats_file)
+            logger.info("stored stats snapshot batch=%s rows=%s file=%s", batch_id, len(pdf), stats_file)
+        except Exception as exc:
+            logger.exception("failed storing stats snapshot batch=%s error=%s", batch_id, exc)
+
     bronze_query = (
         parsed.writeStream.format("parquet")
         .outputMode("append")
@@ -98,11 +118,24 @@ def run() -> None:
         .start()
     )
 
+    stats_checkpoint = checkpoint_root / "processor" / "stats_snapshot"
+    stats_checkpoint.mkdir(parents=True, exist_ok=True)
+    latest_stats_file = output_root / "stats" / "latest.parquet"
+    if latest_stats_file.exists():
+        latest_stats_file.unlink()
+
+    # Remove legacy Spark parquet sink artifacts so the dashboard only sees the fresh snapshot file.
+    for stale_path in (output_root / "stats").iterdir():
+        if stale_path.name != latest_stats_file.name:
+            if stale_path.is_dir():
+                shutil.rmtree(stale_path, ignore_errors=True)
+            else:
+                stale_path.unlink(missing_ok=True)
+
     stats_query = (
-        stats.writeStream.format("parquet")
-        .outputMode("append")
-        .option("path", str(output_root / "stats"))
-        .option("checkpointLocation", str(checkpoint_root / "processor" / "stats"))
+        stats.writeStream.foreachBatch(write_stats_snapshot)
+        .outputMode("update")
+        .option("checkpointLocation", str(stats_checkpoint))
         .start()
     )
 

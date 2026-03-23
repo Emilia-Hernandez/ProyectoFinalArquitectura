@@ -77,8 +77,8 @@ class Settings:
     kafka_topic: str = os.getenv("KAFKA_TOPIC", "market_ticks")
     kafka_client_id: str = os.getenv("KAFKA_CLIENT_ID", "alpha-producer")
 
-    stream_window_seconds: int = int(os.getenv("STREAM_WINDOW_SECONDS", "30"))
-    stream_slide_seconds: int = int(os.getenv("STREAM_SLIDE_SECONDS", "30"))
+    stream_window_seconds: int = int(os.getenv("STREAM_WINDOW_SECONDS", "10"))
+    stream_slide_seconds: int = int(os.getenv("STREAM_SLIDE_SECONDS", "10"))
     spark_master: str = os.getenv("SPARK_MASTER", "local[*]")
     spark_kafka_package: str = field(default_factory=_resolve_spark_kafka_package)
 

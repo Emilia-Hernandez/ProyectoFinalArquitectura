@@ -60,10 +60,10 @@ No es necesario configurar modo `live`; el productor es simulado por diseño.
 
 Configuración de ventanas (dashboard y estadísticas):
 
-- `STREAM_WINDOW_SECONDS=30`
-- `STREAM_SLIDE_SECONDS=30`
+- `STREAM_WINDOW_SECONDS=10`
+- `STREAM_SLIDE_SECONDS=10`
 
-Esto significa ventanas de 30 segundos tipo *tumbling* (sin traslape), por lo que verás una actualización nueva aproximadamente cada 30 segundos.
+Esto significa ventanas de 10 segundos tipo *tumbling* (sin traslape), por lo que verás una actualización nueva aproximadamente cada 10 segundos.
 
 3. Levantar Kafka/Redpanda:
 
@@ -73,15 +73,44 @@ make kafka-up
 
 - Consola Kafka: `http://localhost:8080`
 
-## Ejecución del pipeline (4 terminales)
+## Comandos disponibles
 
-Terminal 1: productor
+- `make setup`: crea `.venv` e instala dependencias.
+- `make kafka-up`: levanta Redpanda y su consola web.
+- `make kafka-down`: baja los contenedores.
+- `make producer-sim`: arranca el productor simulado continuo.
+- `make producer`: equivalente a `make producer-sim`.
+- `make stream`: arranca Spark Structured Streaming y escribe `bronze`, `silver` y `stats`.
+- `make train`: entrena el modelo con datos de `silver` y bootstrap histórico/sintético si hace falta.
+- `make predict`: corre inferencia online y guarda batches en `output/predictions`.
+- `make dashboard`: abre el dashboard de Streamlit.
+- `make benchmark`: ejecuta el benchmark básico.
+- `make clean`: borra artefactos del pipeline en `output/`.
+
+## Ejecución recomendada
+
+Primera vez o reinicio limpio:
+
+```bash
+make setup
+cp .env.example .env
+make clean
+make kafka-up
+```
+
+Después espera unos 5 a 10 segundos para que Redpanda termine de levantar antes de arrancar el productor.
+
+## Ejecución del pipeline (orden correcto)
+
+Terminal 1: productor Kafka
 
 ```bash
 make producer-sim
 ```
 
-(equivalente: `make producer`)
+Notas:
+- Si Kafka todavía no está listo, el productor ahora reintenta solo.
+- Cuando ya conecta, empieza a publicar en el topic `market_ticks`.
 
 Terminal 2: procesamiento streaming con Spark
 
@@ -90,22 +119,25 @@ make stream
 ```
 
 - Spark UI: `http://localhost:4040`
+- Este proceso consume Kafka y genera:
+  - `output/bronze`
+  - `output/silver`
+  - `output/stats/latest.parquet`
+- Las estadísticas del dashboard se actualizan cada 10 segundos.
 
-Terminal 3: entrenamiento (cuando ya haya datos en `output/silver`)
+Terminal 3: entrenamiento del modelo
 
 ```bash
 make train
 ```
 
-Terminal 4: inferencia en streaming (segunda tanda)
+Hazlo cuando ya existan datos en `output/silver`. Si todavía hay pocos registros, el entrenamiento completa con bootstrap histórico o sintético.
+
+Terminal 4: inferencia en streaming
 
 ```bash
 make predict
 ```
-
-Nota práctica para demo:
-- Si `output/predictions` aún está vacío, el dashboard muestra una vista de predicción demo construida desde `output/silver`.
-- Cuando `make predict` ya escribe batches, el dashboard cambia automáticamente a predicción online real.
 
 Dashboard web (puede ir en otra terminal):
 
@@ -115,13 +147,56 @@ make dashboard
 
 - Dashboard: `http://localhost:8501`
 
+Nota práctica para demo:
+- Si `output/predictions` aún está vacío, el dashboard muestra una vista demo construida desde `output/silver`.
+- Cuando `make predict` ya escribe batches, el dashboard cambia automáticamente a predicción online real.
+
+## Secuencia mínima para que "jale"
+
+Si solo quieres levantar todo rápido y verlo funcionando:
+
+1. `make kafka-up`
+2. esperar 5 a 10 segundos
+3. `make producer-sim`
+4. en otra terminal, `make stream`
+5. en otra terminal, `make dashboard`
+
+Si además quieres predicciones:
+
+1. deja correr `make stream` al menos 20 a 40 segundos
+2. ejecuta `make train`
+3. luego ejecuta `make predict`
+4. refresca el dashboard si hace falta
+
+## Reinicio recomendado cuando algo se descompone
+
+Si hay archivos viejos, parquet corrupto, checkpoints inconsistentes o el dashboard muestra datos raros:
+
+```bash
+make kafka-down
+make clean
+make kafka-up
+```
+
+Después vuelve a arrancar en este orden:
+
+```bash
+make producer-sim
+make stream
+make train
+make predict
+make dashboard
+```
+
+Si quieres evitar carreras al reiniciar todo, deja 3 a 5 segundos entre `make kafka-up`, `make producer-sim` y `make stream`.
+
 ## Flujo esperado
 
 1. `producer` publica eventos de mercado en Kafka topic `market_ticks`.
 2. `stream_processor` consume el topic, parsea JSON y escribe:
    - `output/bronze`: datos crudos normalizados.
    - `output/silver`: features derivadas (`hl_spread`, `oc_change`, etc.).
-   - `output/stats`: min, max, promedio, varianza y conteos por ventana.
+   - `output/stats/latest.parquet`: snapshot estable de min, max, promedio, varianza y conteos por ventana.
 3. `train_model` entrena regresión lineal y guarda modelo en `output/models/linear_regression.joblib`.
 Si hay pocos datos en `silver`, completa automáticamente con histórico diario de Alpha Vantage; si la API no responde, usa histórico sintético local.
 4. `stream_predictor` aplica modelo al stream y guarda predicciones en `output/predictions`.
@@ -184,3 +259,20 @@ make kafka-down
   - Verifica que `make predict` esté corriendo en una terminal aparte.
   - El predictor ahora reinicia su checkpoint automáticamente si no existen archivos en `output/predictions`.
   - Si aun así tarda en aparecer, el dashboard mostrará predicción demo desde `output/silver` para poder enseñar resultados.
+- Error `ArrowInvalid ... Parquet file size is 0 bytes` en el dashboard:
+  - Causa: el dashboard intentó leer un archivo parquet parcial o viejo de `output/stats`.
+  - Solución actual:
+    1. el dashboard ahora ignora parquet inválido
+    2. `make stream` escribe un snapshot estable en `output/stats/latest.parquet`
+    3. si vienes de una corrida vieja, reinicia con `make clean`
+- `make producer-sim` muestra `NoBrokersAvailable` o tarda en conectar:
+  - Causa: Redpanda todavía no termina de arrancar.
+  - Solución:
+    1. `make kafka-up`
+    2. esperar 5 a 10 segundos
+    3. `make producer-sim`
+- El dashboard no actualiza tan seguido:
+  - Ahora las ventanas son de 10 segundos.
+  - Verifica en `.env` que no estés sobrescribiendo:
+    - `STREAM_WINDOW_SECONDS=10`
+    - `STREAM_SLIDE_SECONDS=10`

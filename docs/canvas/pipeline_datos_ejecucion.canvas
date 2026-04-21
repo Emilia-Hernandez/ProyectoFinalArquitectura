@@ -1,0 +1,35 @@
+{
+	"nodes":[
+		{"id":"start","type":"text","text":"Inicio del flujo\\nmake producer-sim\\nCarga settings desde .env y app/config/settings.py.","x":-760,"y":-120,"width":300,"height":130,"color":"4"},
+		{"id":"simulate","type":"text","text":"Generacion de evento\\nprice anterior + drift 0.02 + shock gaussiano\\nCalcula high, low, close y volume.","x":-400,"y":-120,"width":330,"height":150,"color":"3"},
+		{"id":"json","type":"text","text":"Serializacion JSON\\nvalue_serializer=json.dumps(...).encode('utf-8')\\nCampos: event_time, symbol, open, high, low, close, volume, source.","x":0,"y":-120,"width":360,"height":170,"color":"3"},
+		{"id":"topic","type":"text","text":"Topic Kafka\\nmarket_ticks\\nacks=all, retries=5, linger_ms=50\\nflush por batch de 1 segundo.","x":440,"y":-120,"width":330,"height":150,"color":"2"},
+		{"id":"readstream","type":"text","text":"Lectura streaming\\nspark.readStream.format('kafka')\\nsubscribe=market_ticks\\nstartingOffsets=latest para procesamiento.","x":860,"y":-120,"width":340,"height":150,"color":"5"},
+		{"id":"schema","type":"text","text":"Parseo MARKET_SCHEMA\\nfrom_json(value, MARKET_SCHEMA)\\nwithColumn(event_time, to_timestamp)\\nwithWatermark(event_time, '2 minutes').","x":1260,"y":-120,"width":350,"height":170,"color":"5"},
+		{"id":"bronze","type":"text","text":"Salida bronze\\nwriteStream parquet append\\ncheckpoint: output/checkpoints/processor/bronze.","x":1700,"y":-360,"width":330,"height":130,"color":"1"},
+		{"id":"features","type":"text","text":"Transformaciones silver\\nrange_bucket: low/mid/high\\nhl_spread = high - low\\noc_change = close - open.","x":1700,"y":-120,"width":330,"height":150,"color":"1"},
+		{"id":"window","type":"text","text":"Agregacion por ventana\\nwindow(event_time, 10s, 10s) + symbol\\nmin_close, max_close, avg_close, var_close, avg_volume, n_obs.","x":1700,"y":140,"width":360,"height":170,"color":"1"},
+		{"id":"snapshot","type":"text","text":"Snapshot estadistico\\nforeachBatch(write_stats_snapshot)\\nOrdena por window_start y symbol\\nReemplaza output/stats/latest.parquet.","x":2140,"y":140,"width":350,"height":170,"color":"1"},
+		{"id":"trainset","type":"text","text":"Dataset de entrenamiento\\nLee output/silver\\nSi hay pocos datos: Alpha Vantage o historico sintetico\\nTarget: next_close por shift(-1).","x":2140,"y":-120,"width":360,"height":180,"color":"6"},
+		{"id":"model","type":"text","text":"Modelo\\nLinearRegression\\nFeatures: open, high, low, close, volume, hl_spread\\nMetricas: MAE y RMSE.","x":2580,"y":-120,"width":340,"height":160,"color":"6"},
+		{"id":"predictor","type":"text","text":"Prediccion streaming\\nmake predict\\nstartingOffsets=earliest\\nforeachBatch(score_microbatch)\\nGenera pred_next_close.","x":3000,"y":-120,"width":330,"height":170,"color":"6"},
+		{"id":"dashboard","type":"text","text":"Visualizacion\\nmake dashboard\\nStats, predicciones, error absoluto, MAE online, hardware y metricas Spark.","x":3420,"y":20,"width":350,"height":160,"color":"4"}
+	],
+	"edges":[
+		{"id":"edge-start-simulate","fromNode":"start","fromSide":"right","toNode":"simulate","toSide":"left"},
+		{"id":"edge-simulate-json","fromNode":"simulate","fromSide":"right","toNode":"json","toSide":"left"},
+		{"id":"edge-json-topic","fromNode":"json","fromSide":"right","toNode":"topic","toSide":"left"},
+		{"id":"edge-topic-readstream","fromNode":"topic","fromSide":"right","toNode":"readstream","toSide":"left"},
+		{"id":"edge-readstream-schema","fromNode":"readstream","fromSide":"right","toNode":"schema","toSide":"left"},
+		{"id":"edge-schema-bronze","fromNode":"schema","fromSide":"right","toNode":"bronze","toSide":"left"},
+		{"id":"edge-schema-features","fromNode":"schema","fromSide":"right","toNode":"features","toSide":"left"},
+		{"id":"edge-schema-window","fromNode":"schema","fromSide":"right","toNode":"window","toSide":"left"},
+		{"id":"edge-window-snapshot","fromNode":"window","fromSide":"right","toNode":"snapshot","toSide":"left"},
+		{"id":"edge-features-trainset","fromNode":"features","fromSide":"right","toNode":"trainset","toSide":"left"},
+		{"id":"edge-trainset-model","fromNode":"trainset","fromSide":"right","toNode":"model","toSide":"left"},
+		{"id":"edge-topic-predictor","fromNode":"topic","fromSide":"bottom","toNode":"predictor","toSide":"left"},
+		{"id":"edge-model-predictor","fromNode":"model","fromSide":"right","toNode":"predictor","toSide":"left"},
+		{"id":"edge-snapshot-dashboard","fromNode":"snapshot","fromSide":"right","toNode":"dashboard","toSide":"left"},
+		{"id":"edge-predictor-dashboard","fromNode":"predictor","fromSide":"right","toNode":"dashboard","toSide":"left"}
+	]
+}

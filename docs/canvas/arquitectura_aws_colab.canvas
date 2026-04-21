@@ -1,0 +1,30 @@
+{
+	"nodes":[
+		{"id":"premise","type":"text","text":"Misma aplicacion, otra arquitectura\\nMantener topic, esquema, ventanas, features, modelo y metricas para comparar contra local.","x":-760,"y":-320,"width":350,"height":150,"color":"4"},
+		{"id":"aws_producer","type":"text","text":"AWS productor\\nEC2 o ECS Fargate\\nEjecuta app/pipeline/producer.py\\nVariables en Secrets Manager o Parameter Store.","x":-320,"y":-440,"width":340,"height":160,"color":"3"},
+		{"id":"msk","type":"text","text":"Broker streaming\\nAmazon MSK o Redpanda en EC2\\nTopic: market_ticks\\nMetricas en CloudWatch.","x":100,"y":-440,"width":330,"height":150,"color":"2"},
+		{"id":"emr","type":"text","text":"Spark administrado\\nAmazon EMR o AWS Glue Streaming\\nEjecuta stream_processor.py y stream_predictor.py\\nSpark UI / History Server.","x":520,"y":-440,"width":360,"height":170,"color":"5"},
+		{"id":"s3","type":"text","text":"Data lake S3\\nbronze/\\nsilver/\\nstats/\\nmodels/\\npredictions/\\nParticionar por fecha y symbol.","x":980,"y":-440,"width":300,"height":210,"color":"1"},
+		{"id":"sagemaker","type":"text","text":"Entrenamiento alternativo\\nEC2, EMR o SageMaker\\nLee S3 silver\\nEscribe linear_regression.joblib en S3 models.","x":1380,"y":-440,"width":350,"height":160,"color":"6"},
+		{"id":"app","type":"text","text":"Dashboard publicado\\nEC2, ECS o App Runner\\nStreamlit lee S3 stats y predictions\\nExpone resultados para demo.","x":1380,"y":-160,"width":350,"height":160,"color":"4"},
+		{"id":"metrics","type":"text","text":"Comparacion\\nSpark UI + CloudWatch\\ninput rate, processing rate, batch duration, shuffle, I/O, GC, spill, scheduler delay, hardware.","x":980,"y":-120,"width":350,"height":170,"color":"4"},
+		{"id":"colab","type":"text","text":"Google Colab\\nUso recomendado: desarrollo, pruebas pequenas y entrenamiento puntual\\nNo es ideal para streaming permanente por sesiones efimeras.","x":-320,"y":20,"width":360,"height":160,"color":"6"},
+		{"id":"external_kafka","type":"text","text":"Servicios externos para Colab\\nKafka externo / Redpanda Cloud\\nGoogle Drive o Cloud Storage para Parquet y modelo.","x":120,"y":20,"width":350,"height":150,"color":"2"},
+		{"id":"colab_spark","type":"text","text":"PySpark en Colab\\nPruebas con subconjuntos\\nEntrenamiento y notebooks de analisis\\nRegistrar benchmarks comparables.","x":560,"y":20,"width":350,"height":160,"color":"5"},
+		{"id":"limitation","type":"text","text":"Limitacion Colab\\nLa red, los tuneles y la duracion de sesion pueden afectar Spark UI, throughput y repetibilidad.","x":1000,"y":120,"width":350,"height":140,"color":"1"}
+	],
+	"edges":[
+		{"id":"edge-premise-aws-producer","fromNode":"premise","fromSide":"right","toNode":"aws_producer","toSide":"left"},
+		{"id":"edge-aws-producer-msk","fromNode":"aws_producer","fromSide":"right","toNode":"msk","toSide":"left"},
+		{"id":"edge-msk-emr","fromNode":"msk","fromSide":"right","toNode":"emr","toSide":"left"},
+		{"id":"edge-emr-s3","fromNode":"emr","fromSide":"right","toNode":"s3","toSide":"left"},
+		{"id":"edge-s3-sagemaker","fromNode":"s3","fromSide":"right","toNode":"sagemaker","toSide":"left"},
+		{"id":"edge-s3-app","fromNode":"s3","fromSide":"right","toNode":"app","toSide":"left"},
+		{"id":"edge-emr-metrics","fromNode":"emr","fromSide":"bottom","toNode":"metrics","toSide":"top"},
+		{"id":"edge-premise-colab","fromNode":"premise","fromSide":"bottom","toNode":"colab","toSide":"top"},
+		{"id":"edge-colab-external","fromNode":"colab","fromSide":"right","toNode":"external_kafka","toSide":"left"},
+		{"id":"edge-external-colab-spark","fromNode":"external_kafka","fromSide":"right","toNode":"colab_spark","toSide":"left"},
+		{"id":"edge-colab-spark-limitation","fromNode":"colab_spark","fromSide":"right","toNode":"limitation","toSide":"left"},
+		{"id":"edge-colab-spark-metrics","fromNode":"colab_spark","fromSide":"top","toNode":"metrics","toSide":"bottom"}
+	]
+}

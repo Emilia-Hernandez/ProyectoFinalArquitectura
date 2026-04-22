@@ -34,7 +34,7 @@ La justificación arquitectónica será que Spark nos permitirá procesar micro-
 
 Compararemos dos arquitecturas de ejecución locales:
 - Arquitectura en MacOS
-  - Hardware de Emi
+  - Hardware de Emi, pon aqui tus specs pls
 - Arquitectura en WSL2/Ubuntu
   - El pipeline se ejecuta en arquitectura x86_64
   - CPU AMD Ryzen 5 PRO 4650U with Radeon Graphics, 6 núcleos físicos y 12 lógicos.

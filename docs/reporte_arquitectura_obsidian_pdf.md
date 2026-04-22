@@ -60,21 +60,11 @@ Estas visualizaciones nos ayudarán a definir la utilidad del modelo porque most
 
 Levantaremos la infraestructura local con `docker-compose.yml`: Redpanda expondrá un broker Kafka-compatible en `localhost:9092` y una consola web en `localhost:8080`. `app/config/settings.py` centralizará topic, broker, tasa del productor, ventanas, rutas de salida, `SPARK_MASTER=local[*]` y resolución automática del paquete `spark-sql-kafka-0-10` según versión de Spark y Scala; esta decisión evitará hardcodear el conector crítico entre Spark y Kafka (Apache Software Foundation, 2024; Redpanda Data, s. f.).
 
-```mermaid
-flowchart TB
-    P["Productor con replay de Alpha Vantage\ny fallback simulado\n4096 eventos/s objetivo"] --> K["Redpanda / Kafka\ntopic: market_ticks"]
-    K --> S["Spark Structured Streaming\nstream_processor.py"]
-    S --> B["output/bronze\nJSON parseado normalizado"]
-    S --> V["output/silver\nhl_spread, oc_change, range_bucket"]
-    S --> T["output/stats/latest.parquet\nmin, max, avg, var, volumen, conteos"]
-    V --> M["train_model.py\nRegresion lineal next_close"]
-    M --> A["output/models/linear_regression.joblib"]
-    K --> R["stream_predictor.py\nmicro-batches"]
-    A --> R
-    R --> O["output/predictions"]
-    T --> D["dashboard.py\nStreamlit + Plotly"]
-    O --> D
-```
+<img src="assets/arquitectura_pipeline_parte1.png" width="700">
+
+<img src="assets/arquitectura_pipeline_parte2.png" width="700">
+
+<img src="assets/arquitectura_pipeline_parte3.png" width="700">
 
 `app/pipeline/stream_processor.py` leerá Kafka con `startingOffsets="latest"`, parseará `value` con `MARKET_SCHEMA`, convertirá `event_time` a timestamp y aplicará watermark de 2 minutos. A partir de esa tabla streaming, escribirá `bronze` en modo append, construirá `silver` con `range_bucket`, `hl_spread = high - low` y `oc_change = close - open`, y calculará estadísticas por `window(event_time, 10 seconds, 10 seconds)` y `symbol`: `min_close`, `max_close`, `avg_close`, `var_close`, `avg_volume` y `n_obs`; el snapshot estable se guardará con `foreachBatch` como `output/stats/latest.parquet`.
 
@@ -96,22 +86,13 @@ Desde el punto de vista analítico, los resultados nos permitirán observar esta
 
 Si se decidiera implementar el proyecto en AWS (lo cual no es nuestro plan), el productor podría ejecutarse en EC2 o ECS Fargate, Kafka podría reemplazarse por Amazon MSK o Redpanda autogestionado en EC2, Spark podría correr en EMR o AWS Glue Streaming, y las capas `bronze`, `silver`, `stats`, `models` y `predictions` podrían almacenarse en S3 con particionamiento por fecha y símbolo. El dashboard podría publicarse en EC2, ECS o App Runner, leyendo S3 y CloudWatch; Spark UI podría exponerse mediante túnel seguro o history server, y la comparación usaría las mismas métricas de input rate, processing rate, batch duration, shuffle, I/O, GC, spill y hardware.
 
-```mermaid
-flowchart TB
-    SRC["EC2 / ECS\nReplay de Alpha Vantage\ny fallback simulado"] --> MSK["Amazon MSK o Redpanda EC2\ntopic market_ticks"]
-    MSK --> EMR["EMR / Glue Streaming\nSpark Structured Streaming"]
-    EMR --> S3B["S3 bronze"]
-    EMR --> S3S["S3 silver"]
-    EMR --> S3T["S3 stats"]
-    S3S --> TR["Entrenamiento en EMR, EC2 o SageMaker\nRegresion lineal"]
-    TR --> S3M["S3 models"]
-    MSK --> PR["Inferencia streaming"]
-    S3M --> PR
-    PR --> S3P["S3 predictions"]
-    S3T --> APP["Streamlit en EC2, ECS o App Runner"]
-    S3P --> APP
-    EMR --> UI["Spark UI / History Server\nvia tunel seguro"]
-```
+<img src="assets/arquitectura_aws_parte1.png" width="700">
+
+<img src="assets/arquitectura_aws_parte2.png" width="700">
+
+<img src="assets/arquitectura_aws_parte3.png" width="700">
+
+<img src="assets/arquitectura_aws_parte4.png" width="700">
 
 En Google Colab, la opción viable sería usar Colab como ambiente de desarrollo, análisis y entrenamiento puntual, no como plataforma permanente de streaming, porque sus sesiones son efímeras. Colab podría conectarse a un broker Kafka externo y a almacenamiento como Google Drive o Cloud Storage, ejecutar PySpark local para pruebas pequeñas, entrenar el modelo con datos exportados y visualizar resultados; para una comparación justa se registrarían los mismos benchmarks y se documentaría la limitación de disponibilidad y red frente a AWS o ejecución local.
 
